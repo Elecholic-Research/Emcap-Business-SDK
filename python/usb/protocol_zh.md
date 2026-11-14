@@ -88,7 +88,7 @@ COBS以非零长度码表示各段，在解码时恢复原始零字节，不限�
 |---:|---|---|---|
 |0|bytes[4]|magic|`EMP2`：45 4D 50 32|
 |4|uint8|version|1|
-|5|uint8|message_type|01位姿；80命令ACK|
+|5|uint8|message_type|01位姿；82诊断伴随；80命令ACK|
 |6|uint16|flags|bit0：载荷UTC已同步且有效；bit1：自上一成功提交帧起丢弃过待发快照；其余位发送0|
 |8|uint16|payload_length|载荷字节数，不含头和CRC|
 |10|uint16|header_length|40|
@@ -167,6 +167,28 @@ STALE可保留最后一次有限位姿用于诊断，但tracking_state清0，不
 已出现且适用于当前profile的RF设备掉线后保留STALE/无效条目；未出现设备不补位。
 无设备时pose_count=0仍输出帧作为心跳。不是固定3个tracker，也不输出虚构的默认tracker凑包。
 VR设备ID不一定对应独立RF tracker，应同时读取source_kind/source_id。
+
+## 5.4 诊断伴随消息（type=0x82）
+
+每个成功提交的位姿消息之后，基站发送一个同`stream_id`、同`sequence`的诊断伴随消息。它紧跟在 type `0x01` 之后；关联前必须校验这两个标识一致。type `0x01` 格式保持不变。
+
+```text
+解码帧：40字节公共头 + 8字节条目 + 4字节CRC32
+payload_length = 8 * diagnostic_count
+```
+
+每个8字节条目：
+
+|偏移|类型|字段|说明|
+|---:|---|---|---|
+|0|uint16|sensor_id|与关联位姿条目的ID一致|
+|2|uint8|diagnostic_flags|bit0电量有效；bit1磁场质量有效；bit2 STALE；其余为0|
+|3|uint8|field_quality|0未知，1绿，2黄，3红|
+|4|uint8|battery_percent|0..100；0xFF未知|
+|5|uint8|rf_sequence|最近RF WORLD_POSE序号；不可用为0|
+|6|uint16|reserved|必须为0|
+
+条目按`sensor_id`升序且不重复。无效值通过清除对应valid位并将质量写0或电量写0xFF表示。来源停止更新后可保留数值，但超过1秒必须清除对应valid位。缺失伴随包不影响 type `0x01` 位姿本身；没有匹配位姿的伴随包不得用于关联。
 
 ## 6. ACK消息（type=80，载荷24字节）
 

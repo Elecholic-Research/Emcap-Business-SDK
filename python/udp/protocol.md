@@ -151,3 +151,45 @@ Possible future additions:
 - optional quality metrics or diagnostics
 - stronger integrity checks if deployment feedback requires them
 
+#### 3.5.8 Type 3 Companion: Battery and Field Quality
+
+The firmware sends a Type 3 datagram after each successfully submitted Type 1
+pose datagram. It uses the same `seq`, `timestamp_ns`, destination address and
+UDP port. The Type 1 wire layout is unchanged.
+
+Type 3 has a 36-byte timing prefix after the 18-byte header and a 24-byte item
+per tracker:
+
+```text
+54 + 24 * item_count bytes
+```
+
+Type 3 prefix:
+
+| Offset | Type | Meaning |
+|---:|---|---|
+|18|uint32|UDP diagnostic boot identifier|
+|22|uint64|Pose snapshot enqueue monotonic time, us|
+|30|uint64|Monotonic time sampled before Type 1 submission, us|
+|38|uint64|Wall-clock time sampled before Type 1 submission, ns|
+|46|uint64|Monotonic time sampled while constructing Type 3, us|
+
+Each item starts at `54 + 24*i`:
+
+| Item offset | Type | Meaning |
+|---:|---|---|
+|0|uint16|sensor_id|
+|2|uint16|Flags: bit 0 RF timestamp valid; bit 1 battery valid; bit 2 field quality valid; other bits zero|
+|4|uint32|Base-station measurement sequence|
+|8|uint64|Latest pose RF reception monotonic time, us|
+|16|uint8|RF packet sequence|
+|17|uint8|Field quality: `0=unknown`, `1=green`, `2=yellow`, `3=red`|
+|18|uint8|Battery percent `0..100`; `0xFF=unknown`|
+|19..23|5 bytes|Reserved, zero|
+
+Battery and field quality retain their last values after becoming stale, but
+their valid flags are cleared when no fresh `WORLD_POSE` has arrived for one
+second. Consumers must check the valid flags. Unknown, startup, offline, no-data
+and disabled-quality states are presented as red by the customer UI. Type 1 and
+Type 3 can be lost or reordered independently; correlate them by sender address
+and `seq` and do not require both to arrive.

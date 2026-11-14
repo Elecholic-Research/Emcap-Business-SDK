@@ -98,7 +98,7 @@ CRC covers the common header and all payload bytes.
 |---:|---|---|---|
 | 0 | bytes[4] | magic | `EMP2`: 45 4D 50 32 |
 | 4 | uint8 | version | 1 |
-| 5 | uint8 | message_type | 01 pose; 80 command ACK |
+| 5 | uint8 | message_type | 01 pose; 82 diagnostic companion; 80 command ACK |
 | 6 | uint16 | flags | Bit 0: payload UTC synchronized/valid; bit 1: pending snapshots discarded since the last successful submission; other bits zero |
 | 8 | uint16 | payload_length | Payload bytes, excluding header and CRC |
 | 10 | uint16 | header_length | 40 |
@@ -186,6 +186,27 @@ Frames with pose_count=0 provide a heartbeat when there are no devices.
 The protocol does not assume three Trackers or invent default entries to pad packets.
 VR device IDs do not necessarily represent independent RF Trackers; inspect source_kind/source_id.
 
+## 5.4 Diagnostic companion message (type=0x82)
+
+After every successfully submitted pose message, the base emits one diagnostic companion with the same `stream_id` and `sequence`. It is sent immediately after type `0x01`; validate both identifiers before associating entries with the pose message. Type `0x01` remains unchanged.
+
+```text
+Decoded: 40-byte common header + 8-byte items + 4-byte CRC32
+payload_length = 8 * diagnostic_count
+```
+
+Each 8-byte item:
+
+| Offset | Type | Field | Description |
+|---:|---|---|---|
+| 0 | uint16 | sensor_id | Same ID as the associated pose entry |
+| 2 | uint8 | diagnostic_flags | bit0 battery valid; bit1 field-quality valid; bit2 STALE; other bits zero |
+| 3 | uint8 | field_quality | 0 unknown, 1 green, 2 yellow, 3 red |
+| 4 | uint8 | battery_percent | 0..100; 0xFF unknown |
+| 5 | uint8 | rf_sequence | Last RF WORLD_POSE sequence; 0 when unavailable |
+| 6 | uint16 | reserved | Must be zero |
+
+Entries are sorted by `sensor_id` and cannot repeat. Invalid values clear the corresponding valid bit and write quality 0 or battery `0xFF`. Values may be retained after a source stops updating, but after one second the corresponding valid bit must be cleared. A missing companion does not invalidate the type `0x01` pose; a companion without its matching pose must be discarded for association purposes.
 ## 6. ACK message (type=80, 24-byte payload)
 
 ACKs use the common header and CRC and **have a 24-byte payload**:

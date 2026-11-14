@@ -54,6 +54,8 @@ finally:
 
 Positions are in meters; `quaternion_xyzw` is XYZW.
 tracking_state bits 0/1 indicate valid position/orientation.
+field_quality (0 unknown, 1 green, 2 yellow, 3 red) and battery_percent (0..100, 0xFF unknown) are merged from the matching type 0x82 companion. Check diagnostic_flags bits 0/1 before using them.
+
 sample_flags bits: 0 source metadata valid; 1 stale; 2 new source sample; 3 source link online.
 Online alone does not establish valid tracking: always check tracking_state.
 When source metadata is valid, use measurement_sequence to identify repeated samples, not coordinate equality.

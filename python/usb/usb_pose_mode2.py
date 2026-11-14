@@ -9,6 +9,7 @@ HEADER = struct.Struct('<4sBBHHHIIIQQ')
 PREFIX = struct.Struct('<QHBBHH')
 ITEM = struct.Struct('<HBBIQIBBH7f')
 ACK = struct.Struct('<HHBBHIIHHI')
+DIAG_ITEM = struct.Struct('<HBBBBH')
 MAX_DECODED = 2048
 MAX_ENCODED = 2057
 
@@ -102,6 +103,26 @@ def parse_frame(data):
                 sample_flags=sf, measurement_sequence=measurement, rx_mono_us=rx,
                 data_age_us=age, rf_sequence=rf, source_kind=source, source_id=source_id,
                 position=list(v[9:12]), quaternion_xyzw=list(v[12:16])))
+    elif kind == 0x82:
+        if size % DIAG_ITEM.size:
+            raise ProtocolError('length_errors')
+        result['diagnostics'] = []
+        last_id = -1
+        for off in range(0, size, DIAG_ITEM.size):
+            sid, df, quality, battery, rf, reserved = DIAG_ITEM.unpack_from(p, off)
+            if sid <= last_id or df & ~7 or quality > 3 or reserved:
+                raise ProtocolError('field_errors')
+            if not df & 2 and quality:
+                raise ProtocolError('field_errors')
+            if not df & 1 and battery != 0xFF:
+                raise ProtocolError('field_errors')
+            if df & 1 and battery > 100:
+                raise ProtocolError('field_errors')
+            if battery != 0xFF and battery > 100:
+                raise ProtocolError('field_errors')
+            last_id = sid
+            result['diagnostics'].append(dict(sensor_id=sid, diagnostic_flags=df,
+                field_quality=quality, battery_percent=battery, rf_sequence=rf))
     return result
 
 
@@ -155,17 +176,45 @@ class SerialClient:
         self.entry_ack = None
         self.entry_raw_tail = b''
         self.last_command_diagnostic = {}
+        self.diagnostics = {}
+        self.unmatched_diagnostics = 0
 
     def poll(self):
         if self.pending:
             return self.pending.popleft()
-        data = self.serial.read(min(max(self.serial.in_waiting, 1), 8192))
-        self.raw_tail.extend(data)
-        if len(self.raw_tail) > 65536:
-            del self.raw_tail[:-65536]
-        now = time.monotonic()
-        self.pending.extend((now, f) for f in self.decoder.feed(data))
-        return self.pending.popleft() if self.pending else None
+        deadline = time.monotonic() + 0.25
+        while True:
+            data = self.serial.read(min(max(self.serial.in_waiting, 1), 8192))
+            self.raw_tail.extend(data)
+            if len(self.raw_tail) > 65536:
+                del self.raw_tail[:-65536]
+            now = time.monotonic()
+            for frame in self.decoder.feed(data):
+                if frame["type"] == 0x82:
+                    self.diagnostics[(frame["stream_id"], frame["sequence"])] = frame["diagnostics"]
+                else:
+                    self.pending.append((now, frame))
+            while self.pending:
+                stamp, frame = self.pending.popleft()
+                if frame["type"] == 0x01:
+                    key = (frame["stream_id"], frame["sequence"])
+                    diag = self.diagnostics.pop(key, None)
+                    if diag is None and time.monotonic() < deadline:
+                        self.pending.appendleft((stamp, frame))
+                        break
+                    if diag is None:
+                        self.unmatched_diagnostics += 1
+                    else:
+                        by_id = {x["sensor_id"]: x for x in diag}
+                        for pose in frame["poses"]:
+                            item = by_id.get(pose["sensor_id"])
+                            if item is not None:
+                                pose["field_quality"] = item["field_quality"]
+                                pose["battery_percent"] = item["battery_percent"]
+                                pose["diagnostic_flags"] = item["diagnostic_flags"]
+                return stamp, frame
+            if time.monotonic() >= deadline:
+                return None
 
     def command(self, text, command_id, timeout=3, retry_interval=None):
         if retry_interval is not None and (command_id != 1 or text != 'mode wired2' or retry_interval <= 0):

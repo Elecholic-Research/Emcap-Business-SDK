@@ -17,6 +17,8 @@ python usb_pose_mode2_demo.py --port COM6 --seconds 30
 Ctrl+C/正常结束时尝试切回`mode log`并关闭串口。强制终止后可再次运行；若处于旧JustFloat wired模式，先用串口助手发送`mode log`。
 无需Wi-Fi即可接收。串口默认115200；USB虚拟串口的波特率不等同实际USB链路带宽。
 
+`n`nSDK将匹配的0x82诊断伴随后包中的 field_quality（0未知，1绿，2黄，3红）和 battery_percent（0..100，0xFF未知）合并到位姿条目；使用前检查 diagnostic_flags 的 bit0/bit1 有效位。
+
 ## API
 ```python
 from usb_pose_mode2 import SerialClient

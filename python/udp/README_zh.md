@@ -36,3 +36,6 @@ Windows首次运行应允许Python通过专用网络防火墙；确认9003端口
 
 协议布局见[protocol.md](protocol_zh.md)。
 
+## 电量与磁场质量
+
+Type 3 的 battery_valid / field_quality_valid 表示当前值是否在 1 秒内更新；过期后数值仍保留供显示，但必须按无效处理。0=unknown，1=green，2=yellow，3=red。客户 UI 对 unknown、启动、离线、无数据和检测关闭统一显示红色。

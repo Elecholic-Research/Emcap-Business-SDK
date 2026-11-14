@@ -45,3 +45,7 @@ Invalid or unsupported datagrams raise `ValueError`.
 - For high-rate reception, keep expensive printing and disk processing out of the receive loop; use a separate queue.
 
 See [protocol.md](protocol.md) for the binary layout.
+
+## Battery and field quality
+
+Type 3 exposes battery_valid and field_quality_valid; values are retained after they become stale but must not be treated as current when the valid bit is clear. Field quality is 0=unknown, 1=green, 2=yellow, 3=red. The customer UI presents unknown, startup, offline, no-data and disabled quality as red.
